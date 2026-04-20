@@ -6,14 +6,11 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -28,23 +25,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug working directory & files
+        run: |
+          echo "WORKSPACE: $GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          echo "Listing repo root files:"
+          ls -la $GITHUB_WORKSPACE || true
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
 
-      - name: Generate package-lock.json if missing
+      - name: Ensure lockfile exists for npm ci
         run: |
           if [ ! -f package-lock.json ] && [ ! -f npm-shrinkwrap.json ] && [ ! -f yarn.lock ]; then
             echo "No lockfile found — generating package-lock.json for this run"
+            # generate a package-lock.json without installing packages to the node_modules tree
             npm install --package-lock-only
+            echo "Generated package-lock.json:"
+            cat package-lock.json | head -n 50 || true
           else
-            echo "Lockfile present"
+            echo "Lockfile present; skipping generation"
+            ls -la package-lock.json npm-shrinkwrap.json yarn.lock || true
           fi
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (try npm ci, fallback to npm install)
+        run: |
+          set -e
+          echo "Attempting npm ci (fast, reproducible)..."
+          if npm ci --prefer-offline --no-audit --no-fund; then
+            echo "npm ci succeeded"
+            exit 0
+          fi
+          echo "npm ci failed — falling back to npm install"
+          npm install --no-audit --no-fund
 
       - name: Build
         run: npm run build
